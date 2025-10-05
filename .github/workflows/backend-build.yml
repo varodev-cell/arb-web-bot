@@ -1,30 +1,44 @@
-name: Build & Push Backend Docker
+name: Build and Test Backend
+
 on:
-push:
-branches: [ main ]
-paths:
-- 'backend/**'
-- '.github/workflows/backend-build.yml'
-workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-build.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-build.yml'
+  workflow_dispatch:
+
 jobs:
-docker:
-runs-on: ubuntu-latest
-permissions:
-contents: read
-packages: write
-steps:
-- uses: actions/checkout@v4
-- name: Log in to GHCR
-uses: docker/login-action@v3
-with:
-registry: ghcr.io
-username: ${{ github.actor }}
-password: ${{ secrets.GITHUB_TOKEN }}
-- name: Build
-run: |
-docker build -t ghcr.io/${{ github.repository_owner }}/arb-web-
-bot:latest -f backend/Dockerfile .
-- name: Push
-run: |
-docker push ghcr.io/${{ github.repository_owner }}/arb-web-
-bot:latest
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Lint with flake8
+        run: |
+          pip install flake8
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || true
+
+      - name: Run tests (if you have tests)
+        run: |
+          if [ -f "tests" ]; then
+            pip install pytest
+            pytest
+          fi
