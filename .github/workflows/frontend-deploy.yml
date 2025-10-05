@@ -1,41 +1,55 @@
+name: Deploy Frontend to GitHub Pages
+
 on:
-push:
-  branches: [ main ]
-  paths:
-    - 'frontend/**'
-    - '.github/workflows/frontend-deploy.yml'
-workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-deploy.yml'
+  workflow_dispatch:
 
 permissions:
-contents: write
-pages: write
-id-token: write
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: 'pages'
+  cancel-in-progress: true
 
 jobs:
-build:
-  runs-on: ubuntu-latest
-  steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-node@v4
-      with:
-        node-version: 20
-    - name: Build
-      working-directory: frontend
-      run: |
-        npm ci
-        npm run build
-    - name: Upload artifact
-      uses: actions/upload-pages-artifact@v3
-      with:
-        path: frontend/dist
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-deploy:
-  needs: build
-  runs-on: ubuntu-latest
-  environment:
-    name: github-pages
-    url: ${{ steps.deployment.outputs.page_url }}
-  steps:
-    - name: Deploy to GitHub Pages
-      id: deployment
-      uses: actions/deploy-pages@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Build Vite app
+        working-directory: frontend
+        env:
+          # ← сюда ставим твой Render-бэк
+          VITE_BACKEND_URL: https://arb-web-bot.onrender.com
+        run: |
+          echo "VITE_BACKEND_URL=$VITE_BACKEND_URL" > .env
+          npm ci
+          npm run build
+          # SPA-фикс для GitHub Pages (чтобы роуты не падали на 404)
+          cp dist/index.html dist/404.html
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
