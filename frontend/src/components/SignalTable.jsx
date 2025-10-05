@@ -20,3 +20,18 @@ import React from 'react'
           <td style={td}><b>{r.symbol}</b></td>
           <td style={td}>{r.src}→ {r.dst}</td>
           <td style={td}>{Number(r.src_price).toFixed(4)}→
+            {Number(r.dst_price).toFixed(4)}</td>
+          <td style={td}><b>{Number(r.spread_bps).toFixed(1)}</b></td>
+          <td style={td}>{new Date(r.created_at +
+                                   'Z').toLocaleTimeString()}</td>
+        </tr>
+      ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+const th = { textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding:
+  '8px' }
+  const td = { borderBottom: '1px solid #f3f4f6', padding: '8px', fontFamily:
+    'ui-monospace, SFMono-Regular, Menlo, monospace' }
