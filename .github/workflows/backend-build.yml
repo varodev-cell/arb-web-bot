@@ -1,0 +1,30 @@
+name: Build & Push Backend Docker
+on:
+push:
+branches: [ main ]
+paths:
+- 'backend/**'
+- '.github/workflows/backend-build.yml'
+workflow_dispatch:
+jobs:
+docker:
+runs-on: ubuntu-latest
+permissions:
+contents: read
+packages: write
+steps:
+- uses: actions/checkout@v4
+- name: Log in to GHCR
+uses: docker/login-action@v3
+with:
+registry: ghcr.io
+username: ${{ github.actor }}
+password: ${{ secrets.GITHUB_TOKEN }}
+- name: Build
+run: |
+docker build -t ghcr.io/${{ github.repository_owner }}/arb-web-
+bot:latest -f backend/Dockerfile .
+- name: Push
+run: |
+docker push ghcr.io/${{ github.repository_owner }}/arb-web-
+bot:latest
