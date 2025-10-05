@@ -30,10 +30,14 @@ async def health():
   async def list_signals(limit: int = 100, session: AsyncSession =
                          Depends(get_session)):
                            res = await session.execute(
-                             "SELECT id, symbol, src, dst, src_price, dst_price, spread_bps,
-                             created_at FROM signals ORDER BY id DESC LIMIT :lim",
+                             """
+                             SELECT id, symbol, src, dst, src_price, dst_price, spread_bps, created_at
+                             FROM signals
+                             ORDER BY id DESC
+                             LIMIT :lim
+                             """,
                              {"lim": limit},
-                             )
+                           )
                              rows = [dict(r._mapping) for r in res]
                              return {"items": rows}
                              @app.websocket("/ws")
@@ -46,8 +50,12 @@ async def health():
                              # raw SQL для простоты
                              async with get_session() as session:
                              res = await session.execute(
-                             "SELECT id, symbol, src, dst, src_price, dst_price,
-                             spread_bps, created_at FROM signals ORDER BY id DESC LIMIT 50"
+                               """
+                               SELECT id, symbol, src, dst, src_price, dst_price, spread_bps, created_at
+                               FROM signals
+                               ORDER BY id DESC
+                               LIMIT 50
+                               """
                              )
                              rows = [dict(r._mapping) for r in res]
                              await ws.send_json({"type": "signals", "items": rows})
