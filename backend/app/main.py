@@ -62,4 +62,14 @@ async def websocket_endpoint(ws: WebSocket):
             async with get_session() as session:
                 res = await session.execute(
                     """
-                    SELECT id, symbol, src, dst, src_price, dst_
+                    SELECT id, symbol, src, dst, src_price, dst_price, spread_bps, created_at
+                    FROM signals
+                    ORDER BY id DESC
+                    LIMIT 50
+                    """
+                )
+                rows = [dict(r._mapping) for r in res]
+            await ws.send_json({"type": "signals", "items": rows})
+    except Exception:
+        # можно добавить логирование, если нужно
+        pass
