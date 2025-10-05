@@ -1,18 +1,18 @@
 services:
-- type: web
-name: arb-web-bot-backend
-env: python
-plan: free
-buildCommand: pip install -r backend/requirements.txt
-startCommand: uvicorn app.main:app --host 0.0.0.0 --port 10000
-envVars:
-- key: PYTHON_VERSION
-value: 3.11.9
-- key: TELEGRAM_BOT_TOKEN
-value: 8232117853:AAHVSbH_kj0er1KRjRi0PDreAEhJV2Of7W0
-- key: TELEGRAM_CHAT_ID
-value: 1151406663
-- key: SYMBOLS
-value: BTCUSDT,ETHUSDT
-- key: MIN_SPREAD_BPS
-value: "5"
+  - type: web
+    name: arb-web-bot-backend
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port 10000
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: TELEGRAM_BOT_TOKEN
+        value: ""       # Установите это значение через Render Dashboard (секреты)
+      - key: TELEGRAM_CHAT_ID
+        value: ""       # Установите это значение через Render Dashboard (секреты)
+      - key: SYMBOLS
+        value: BTCUSDT,ETHUSDT
+      - key: MIN_SPREAD_BPS
+        value: "5"
