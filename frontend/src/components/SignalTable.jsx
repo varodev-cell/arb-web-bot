@@ -1,102 +1,92 @@
 import React, { useMemo } from "react";
 
-// Бейдж с логотипом актива (иконка из cryptoicons.org)
-const logoUrl = (symbol = "") => {
-  const base = (symbol || "").toLowerCase().replace("usdt", "").replace("usd", "");
-  return `https://cryptoicons.org/api/icon/${base}/32`;
-};
+// Превратим "BTCUSDT" -> "btc" для иконок
+function symbolToIcon(sym = "") {
+  const base = sym.toLowerCase().replace(/usdt|usd|busd|usdc|perp$/i, "");
+  return base || "btc";
+}
 
-const cell = (isDark) => ({
-  borderBottom: `1px solid ${isDark ? "#1f2a3a" : "#f3f4f6"}`,
-  padding: 10,
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-});
-const head = (isDark) => ({
-  textAlign: "left",
-  borderBottom: `1px solid ${isDark ? "#243146" : "#e5e7eb"}`,
-  padding: 10,
-  fontWeight: 700,
-  fontFamily: 'Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial',
-});
+// Источник логотипов (простые бесплатные иконки)
+function logoUrl(sym) {
+  return `https://cryptoicons.org/api/icon/${symbolToIcon(sym)}/32`;
+}
 
-export default function SignalTable({ items, isDark, capital, minNetBps, onPickSymbol }) {
-  const rows = useMemo(
-    () =>
-      [...items]
-        // можно отфильтровать по минимальному чистому спреду
-        .filter((r) => (r.net_bps ?? -1e9) >= (Number(minNetBps) || 0))
-        .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")),
-    [items, minNetBps]
-  );
+function fmt(n, d = 4) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "—";
+  return x.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: d,
+  });
+}
+
+function timeAgo(iso) {
+  const t = new Date(iso).getTime();
+  if (!t) return "—";
+  const s = Math.floor((Date.now() - t) / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h`;
+}
+
+export default function SignalTable({ items, minSpreadBps = 0 }) {
+  const rows = useMemo(() => {
+    // последние сверху
+    return [...items].sort((a, b) => Number(b.id) - Number(a.id));
+  }, [items]);
 
   return (
     <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <table>
         <thead>
           <tr>
-            <th style={head(isDark)}>#</th>
-            <th style={head(isDark)}>Symbol</th>
-            <th style={head(isDark)}>Src → Dst</th>
-            <th style={head(isDark)}>Prices</th>
-            <th style={head(isDark)}>Gross (bps)</th>
-            <th style={head(isDark)}>Net (bps)</th>
-            <th style={head(isDark)}>Est. P&amp;L</th>
-            <th style={head(isDark)}>Time</th>
+            <th style={{ width: 60 }}>#</th>
+            <th>Symbol</th>
+            <th>Src → Dst</th>
+            <th>Prices</th>
+            <th>Spread (bps)</th>
+            <th>Time</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => {
-            const gross = Number(r.spread_bps);
-            const net = Number(r.net_bps);
-            const pnl = Number(r.est_pnl);
-
-            return (
-              <tr
-                key={r.id ?? i}
-                onClick={() => onPickSymbol?.(r.symbol)}
-                style={{ cursor: "pointer", background: i % 2 ? (isDark ? "#0b1220" : "#fafafa") : "transparent" }}
-                title="Клик — показать график по этому инструменту"
-              >
-                <td style={cell(isDark)}>{i + 1}</td>
-
-                <td style={{ ...cell(isDark), display: "flex", alignItems: "center", gap: 8 }}>
-                  <img alt="" src={logoUrl(r.symbol)} width={20} height={20} style={{ borderRadius: 4 }} />
-                  <strong>{r.symbol}</strong>
-                </td>
-
-                <td style={cell(isDark)}>
-                  {r.src} → {r.dst}
-                </td>
-
-                <td style={cell(isDark)}>
-                  {Number(r.src_price).toFixed(4)} → {Number(r.dst_price).toFixed(4)}
-                </td>
-
-                <td style={cell(isDark)}>
-                  <b>{gross.toFixed(1)}</b>
-                </td>
-
-                <td style={cell(isDark)}>
-                  <b style={{ color: net >= 0 ? "#10b981" : "#ef4444" }}>{net.toFixed(1)}</b>
-                </td>
-
-                <td style={cell(isDark)}>
-                  <b style={{ color: pnl >= 0 ? "#10b981" : "#ef4444" }}>${pnl.toFixed(2)}</b>
-                </td>
-
-                <td style={cell(isDark)}>
-                  {r.created_at ? new Date((r.created_at.endsWith("Z") ? r.created_at : r.created_at + "Z")).toLocaleTimeString() : ""}
-                </td>
-              </tr>
-            );
-          })}
-
-          {rows.length === 0 && (
+          {rows.length === 0 ? (
             <tr>
-              <td style={cell(isDark)} colSpan={8}>
-                Нет данных (либо фильтр по «Мин. чистый спред» слишком строгий).
+              <td colSpan={6} className="muted">
+                Нет данных (ждём сигналы или проверь WS/REST)
               </td>
             </tr>
+          ) : (
+            rows.map((s, i) => {
+              const isOk = Number(s.net_spread_bps ?? s.spread_bps) >=
+                Number(minSpreadBps || 0);
+              return (
+                <tr key={s.id ?? i}>
+                  <td className="muted mono">{s.id ?? i + 1}</td>
+                  <td className="mono">
+                    <img
+                      src={logoUrl(s.symbol)}
+                      alt=""
+                      className="logo"
+                      onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                    />
+                    {s.symbol}
+                  </td>
+                  <td className="mono">
+                    <span className="badge">{s.src}</span> →{" "}
+                    <span className="badge">{s.dst}</span>
+                  </td>
+                  <td className="mono">
+                    {fmt(s.src_price)} → {fmt(s.dst_price)}
+                  </td>
+                  <td className={`mono ${isOk ? "ok" : "bad"}`}>
+                    {fmt(s.net_spread_bps ?? s.spread_bps, 1)}
+                  </td>
+                  <td className="muted mono">{timeAgo(s.created_at)}</td>
+                </tr>
+              );
+            })
           )}
         </tbody>
       </table>
