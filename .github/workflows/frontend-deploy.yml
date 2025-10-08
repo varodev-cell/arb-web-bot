@@ -33,7 +33,7 @@ jobs:
           VITE_BACKEND_URL: https://arb-web-bot.onrender.com
         run: |
           echo "VITE_BACKEND_URL=$VITE_BACKEND_URL" > .env
-          npm ci
+          npm install
           npm run build
           cp dist/index.html dist/404.html
 
