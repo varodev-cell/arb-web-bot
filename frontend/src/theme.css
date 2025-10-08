@@ -1,0 +1,38 @@
+:root {
+  --bg: #0f1115;
+  --panel: #161a22;
+  --text: #e6e6e6;
+  --muted: #9aa4b2;
+  --accent: #4cc38a;
+  --danger: #ff6b6b;
+  --warning: #f5a524;
+  --border: #262b36;
+}
+
+.light {
+  --bg: #ffffff;
+  --panel: #f6f7f9;
+  --text: #0f1115;
+  --muted: #5b6470;
+  --accent: #0ea5e9;
+  --danger: #e11d48;
+  --warning: #a16207;
+  --border: #e5e7eb;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.table th, .table td { border-bottom: 1px solid var(--border); }
+.badge { padding: 2px 8px; border-radius: 9999px; font-weight: 600; }
+.badge-green { background: rgba(76,195,138,.15); color: var(--accent); }
+.badge-red   { background: rgba(225,29,72,.12);  color: var(--danger); }
