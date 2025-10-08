@@ -30,13 +30,11 @@ jobs:
       - name: Build Vite app
         working-directory: frontend
         env:
-          # ← сюда ставим твой Render-бэк
           VITE_BACKEND_URL: https://arb-web-bot.onrender.com
         run: |
           echo "VITE_BACKEND_URL=$VITE_BACKEND_URL" > .env
           npm ci
           npm run build
-          # SPA-фикс для GitHub Pages (чтобы роуты не падали на 404)
           cp dist/index.html dist/404.html
 
       - name: Upload artifact
