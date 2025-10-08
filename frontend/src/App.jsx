@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import SignalTable from "./components/SignalTable.jsx;
+import SignalTable from "./components/SignalTable.jsx";
 
 export default function App() {
   const API = import.meta.env.VITE_BACKEND_URL?.replace(/\/+$/, "") || "";
