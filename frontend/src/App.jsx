@@ -1,18 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import SignalTable from "./components/SignalTable";
 
-// URL бэкенда берём из переменной окружения (прилетает из workflow)
 const API_BASE = import.meta.env.VITE_BACKEND_URL?.replace(/\/+$/, "") || "";
 
-const DEFAULT_FEES_BPS = {
-  binance: 1.0, // 0.01% = 1 bps
-  bybit: 1.0,
-};
+const DEFAULT_FEES_BPS = { binance: 1.0, bybit: 1.0 };
 
 const THEME_STORAGE_KEY = "arb-theme";
 const PARAMS_STORAGE_KEY = "arb-params";
 
-// Утилита: безопасный fetch JSON
+// -------------------- utils --------------------
 async function fetchJSON(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error(`${url} -> ${r.status}`);
@@ -39,6 +35,8 @@ function useParams() {
         capital: 1000,
         feesBps: DEFAULT_FEES_BPS,
         symbol: "BTCUSDT",
+        chartMode: "line", // "line" | "candles"
+        timeframe: "1m", // "1m"|"5m"|"15m"|"1h"
       }
     );
   });
@@ -48,14 +46,68 @@ function useParams() {
   return { params, setParams };
 }
 
-// Простенькая «свечка» в духе line chart через lightweight-charts
-function useLightweightChart(containerRef, seriesData, theme) {
+// агрегация сигналов в свечи (OHLC) по timeframe (сек)
+function aggregateToCandles(items, timeframeSec) {
+  if (!items?.length) return [];
+  // сортировка по времени
+  const arr = [...items]
+    .map((s) => ({
+      ts: Math.floor(new Date(s.created_at).getTime() / 1000),
+      price: Number(s.dst_price) || Number(s.src_price) || NaN,
+    }))
+    .filter((x) => Number.isFinite(x.price))
+    .sort((a, b) => a.ts - b.ts);
+
+  const candles = [];
+  let bucketStart = Math.floor(arr[0].ts / timeframeSec) * timeframeSec;
+  let open = arr[0].price;
+  let high = arr[0].price;
+  let low = arr[0].price;
+  let close = arr[0].price;
+
+  let idx = 0;
+  while (idx < arr.length) {
+    const { ts, price } = arr[idx];
+    // если вышли из текущего ведра — пушим свечу и создаем новое
+    while (ts >= bucketStart + timeframeSec) {
+      candles.push({
+        time: bucketStart,
+        open,
+        high,
+        low,
+        close,
+      });
+      bucketStart += timeframeSec;
+      // если пропуски по времени — копируем close -> open для пустых ведер
+      open = close;
+      high = close;
+      low = close;
+    }
+    // обновляем текущую
+    if (open === undefined) open = price;
+    high = Math.max(high, price);
+    low = Math.min(low, price);
+    close = price;
+    idx++;
+  }
+  // последняя свеча
+  candles.push({ time: bucketStart, open, high, low, close });
+  // ограничим для аккуратности
+  return candles.slice(-300);
+}
+
+// -------------------- charts --------------------
+function useLightweightChart(containerRef, mode, seriesData, theme) {
   useEffect(() => {
-    let chart, line;
+    let chart;
+    let series;
+
     (async () => {
       const { createChart } = await import("lightweight-charts");
-      if (!containerRef.current) return;
-      chart = createChart(containerRef.current, {
+      const el = containerRef.current;
+      if (!el) return;
+
+      chart = createChart(el, {
         autoSize: true,
         layout: {
           background: { color: theme === "dark" ? "#0b0f14" : "#ffffff" },
@@ -67,20 +119,32 @@ function useLightweightChart(containerRef, seriesData, theme) {
         },
         rightPriceScale: { borderVisible: false },
         timeScale: { borderVisible: false },
+        crosshair: { mode: 1 },
       });
-      line = chart.addLineSeries({ lineWidth: 2 });
-      line.setData(seriesData);
+
+      if (mode === "candles") {
+        series = chart.addCandlestickSeries({
+          upColor: theme === "dark" ? "#22c55e" : "#16a34a",
+          borderUpColor: theme === "dark" ? "#22c55e" : "#16a34a",
+          wickUpColor: theme === "dark" ? "#22c55e" : "#16a34a",
+          downColor: theme === "dark" ? "#ef4444" : "#dc2626",
+          borderDownColor: theme === "dark" ? "#ef4444" : "#dc2626",
+          wickDownColor: theme === "dark" ? "#ef4444" : "#dc2626",
+        });
+        series.setData(seriesData || []);
+      } else {
+        series = chart.addLineSeries({ lineWidth: 2 });
+        series.setData(seriesData || []);
+      }
     })();
 
     return () => {
-      if (containerRef.current && containerRef.current.firstChild) {
-        // уничтожаем чарт
-        containerRef.current.innerHTML = "";
-      }
+      if (containerRef.current) containerRef.current.innerHTML = "";
     };
-  }, [containerRef, seriesData, theme]);
+  }, [containerRef, mode, seriesData, theme]);
 }
 
+// -------------------- UI --------------------
 function Header({ theme, setTheme }) {
   return (
     <div className="container">
@@ -111,24 +175,42 @@ export default function App() {
   const [wsOk, setWsOk] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Чарт: берём точки по выбранному символу, строим серию по «цена dst/src»
+  const tfMap = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600 };
+
+  // chart data
   const chartRef = useRef(null);
-  const chartData = useMemo(() => {
-    // Превратим список сигналов выбранного символа в line-данные (по dst_price)
-    const filtered = signals.filter((s) => s.symbol === params.symbol);
-    // Берём последние 100
-    return filtered
-      .slice(0, 100)
+
+  // фильтруем по символу
+  const filtered = useMemo(
+    () => signals.filter((s) => s.symbol === params.symbol),
+    [signals, params.symbol]
+  );
+
+  // линия (по dst_price)
+  const lineData = useMemo(() => {
+    return [...filtered]
+      .slice(-500) // последних N тиков
       .reverse()
       .map((s) => ({
-        // lightweight-charts принимает unix time в секундах
         time: Math.floor(new Date(s.created_at).getTime() / 1000),
         value: Number(s.dst_price) || Number(s.src_price) || 0,
       }));
-  }, [signals, params.symbol]);
-  useLightweightChart(chartRef, chartData, theme);
+  }, [filtered]);
 
-  // Загрузка истории + WebSocket
+  // свечи — агрегируем из сигналов
+  const candleData = useMemo(() => {
+    const sec = tfMap[params.timeframe] || 60;
+    return aggregateToCandles(filtered, sec);
+  }, [filtered, params.timeframe]);
+
+  useLightweightChart(
+    chartRef,
+    params.chartMode,
+    params.chartMode === "candles" ? candleData : lineData,
+    theme
+  );
+
+  // загрузка истории + ws
   useEffect(() => {
     let ws;
     let alive = true;
@@ -171,7 +253,7 @@ export default function App() {
     };
   }, []);
 
-  // Пересчёт «чистой» маржи с учётом комиссий
+  // расчёт нетто-спреда
   const withComputed = useMemo(() => {
     const mk = (n) => (typeof n === "number" && !Number.isNaN(n) ? n : 0);
     return signals.map((s) => {
@@ -180,11 +262,16 @@ export default function App() {
       const gross = mk(Number(s.spread_bps));
       const net = gross - feeSrc - feeDst;
       const ok = net >= (Number(params.minSpreadBps) || 0);
-      // Прикидка прибыли от капитала (очень грубо)
       const pnl = ok ? (net / 10000) * (Number(params.capital) || 0) : 0;
       return { ...s, net_spread_bps: net, ok, pnl };
     });
   }, [signals, params]);
+
+  // список доступных символов из данных
+  const symbols = useMemo(
+    () => [...new Set(signals.map((s) => s.symbol))],
+    [signals]
+  );
 
   return (
     <div className="page">
@@ -202,8 +289,10 @@ export default function App() {
                   setParams((p) => ({ ...p, symbol: e.target.value }))
                 }
               >
-                {/* соберем список по сигналам */}
-                {[...new Set(signals.map((s) => s.symbol))].map((sym) => (
+                {symbols.length === 0 && (
+                  <option value="BTCUSDT">BTCUSDT</option>
+                )}
+                {symbols.map((sym) => (
                   <option key={sym} value={sym}>
                     {sym}
                   </option>
@@ -286,6 +375,43 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            <label className="lbl">
+              Вид графика
+              <div className="row gap">
+                <button
+                  className={`btn ${params.chartMode === "line" ? "active" : ""}`}
+                  onClick={() =>
+                    setParams((p) => ({ ...p, chartMode: "line" }))
+                  }
+                >
+                  Линия
+                </button>
+                <button
+                  className={`btn ${params.chartMode === "candles" ? "active" : ""}`}
+                  onClick={() =>
+                    setParams((p) => ({ ...p, chartMode: "candles" }))
+                  }
+                >
+                  Свечи
+                </button>
+              </div>
+            </label>
+
+            <label className="lbl">
+              Таймфрейм
+              <div className="row gap">
+                {["1m", "5m", "15m", "1h"].map((tf) => (
+                  <button
+                    key={tf}
+                    className={`btn ${params.timeframe === tf ? "active" : ""}`}
+                    onClick={() => setParams((p) => ({ ...p, timeframe: tf }))}
+                  >
+                    {tf}
+                  </button>
+                ))}
+              </div>
+            </label>
           </div>
 
           <div className="muted s">
@@ -296,22 +422,23 @@ export default function App() {
 
         <div className="card">
           <h2>
-            {params.symbol} · График (dst/src) <span className="muted">live</span>
+            {params.symbol} · {params.chartMode === "candles" ? "Свечной" : "Линейный"} график{" "}
+            <span className="muted">({params.timeframe})</span>
           </h2>
-          <div ref={chartRef} style={{ height: 320, width: "100%" }} />
+          <div ref={chartRef} style={{ height: 360, width: "100%" }} />
+          <div className="muted s" style={{ marginTop: 6 }}>
+            Свечи строятся из входящих сигналов (dst_price) с агрегацией по выбранному
+            таймфрейму. Это не биржевой OHLC, а «склеенные» тики для наглядности.
+          </div>
         </div>
       </div>
 
       <div className="container">
         <div className="card">
-          <SignalTable
-            items={withComputed}
-            minSpreadBps={params.minSpreadBps}
-          />
+          <SignalTable items={withComputed} minSpreadBps={params.minSpreadBps} />
         </div>
       </div>
 
-      {/* минимальные стили (темная/светлая), без внешних библиотек */}
       <style>{`
         :root {
           --bg: #ffffff; --text:#111827; --muted:#6b7280; --card:#f5f6f8; --border:#e5e7eb; --accent:#0ea5e9; --ok:#10b981; --bad:#ef4444;
@@ -331,6 +458,7 @@ export default function App() {
         .muted{color:var(--muted)}
         .btn{border:1px solid var(--border); background:var(--card); color:var(--text); padding:8px 10px; border-radius:10px; cursor:pointer}
         .btn:hover{border-color:var(--accent)}
+        .btn.active{border-color:var(--accent); box-shadow: 0 0 0 1px var(--accent) inset}
         .card{background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; margin-bottom:16px}
         h2{margin:0 0 12px 0; font-size:18px}
         .grid{display:grid; grid-template-columns: 1.05fr 2fr; gap:16px}
